@@ -21,6 +21,18 @@ function data()
 		margin = { 8, 4, 4, 4 },
 	})
 
+	-- Make the line manager taller by the height of the Line Map card, so the card fits under the
+	-- stop list instead of being squeezed into its scroll area. Vanilla values (line_vehicle_mgmt.css.lua):
+	-- line panel 360 px (lvmSectionLargeMaxHeight), whole content at most 894 px (lvmWindowHeight).
+	-- Scoped to #menu.management so these win over the vanilla rules.
+	local lineMapCardHeight = 140 -- heading + 40 px map + legend + card padding and margins
+	a("#menu.management R::LinePanel", {
+		size = { -1, 360 + lineMapCardHeight },
+	})
+	a("#menu.management R::ManagerWindowContent", {
+		maxSize = { 500, 894 + lineMapCardHeight },
+	})
+
 	-- Let info windows grow taller than the vanilla 900 px before they scroll, so a line window
 	-- with the Line Map card fits without scrolling. Windows only grow as far as their content.
 	a("Window!entity-window", {
