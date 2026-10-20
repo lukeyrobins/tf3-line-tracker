@@ -1,0 +1,15 @@
+{
+    "authors": [
+        {
+            "name": "Luke",
+            "role": "CREATOR"
+        }
+    ],
+    "description": "Adds a Line Map section to the line window, below Balance. Shows every vehicle on the line with its load, as a geographic minimap, a transport-map style schematic, or a ring with stops at their true relative spacing. Hover a station for its name, or a vehicle for its load and next stop.",
+    "name": "Line Tracker",
+    "summary": "Live minimap of a line's vehicles and their load, in the line window.",
+    "tags": [
+        "Script Mod"
+    ],
+    "url": ""
+}

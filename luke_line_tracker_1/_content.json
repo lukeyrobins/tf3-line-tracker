@@ -1,0 +1,10 @@
+{
+    "archives": null,
+    "files": [
+        "gui/line_tracker/line_tracker.css.lua",
+        "gui/line_tracker/line_tracker_eow.res.lua",
+        "gui/line_tracker/line_tracker_replace.res.lua",
+        "gui/line_tracker/line_tracker_vehicle.res.lua",
+        "gui/line_tracker/line_tracker.script.tl"
+    ]
+}
