@@ -5,8 +5,6 @@ function data()
 	local result = { }
 	local a = ssu.makeAdder(result)
 
-	local colorDefault = api.gui.genericRep.get(api.gui.genericRep.find("::/gui/main/default_colors.gres")).data
-
 	-- exact placement rows on the line map: [lead spacer][item][filler], no extra spacing, and the
 	-- lead spacer keeps exactly the width the script gives it
 	a("BoxLayout!luke-lt-pos", { innerSpacing = { 0, 0 }, padding = { 0, 0, 0, 0 }, margin = { 0, 0, 0, 0 } })
@@ -17,22 +15,9 @@ function data()
 	a("BoxLayout!luke-lt-row", { innerSpacing = { 6, 0 } })
 	a("ImageView!luke-lt-cargo", { size = { 18, 18 }, gravity = { 0, 0.5 } })
 
-	-- Route card under the line manager's stop list: same card look as the manager's line panel
-	-- (line_vehicle_mgmt.css.lua, R::LinePanel), a gap above it and a slim margin to the sides.
+	-- Route card under the line manager's stop list: just spacing around the game's own ContentCard
+	-- (which draws the "Line Map" heading and the card outline, like in the line and vehicle windows)
 	a("Component!luke-lt-manager-card", {
-		backgroundImage1 = {
-			fileName = "::/gui/entity_window/design/card_surface.tga",
-			horizontal = { 0, 6, 26, 32 },
-			vertical = { 0, 6, 26, 32 }
-		},
-		borderImage = {
-			fileName = "::/gui/entity_window/design/card_contour.tga",
-			horizontal = { 0, 6, 26, 32 },
-			vertical = { 0, 6, 26, 32 }
-		},
-		borderColor = colorDefault.BaseVeryLight,
-		backgroundColor1 = colorDefault.BaseDark,
-		padding = { 6, 8, 6, 8 },
 		margin = { 8, 4, 4, 4 },
 	})
 

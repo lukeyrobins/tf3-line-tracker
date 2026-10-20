@@ -899,12 +899,20 @@ local ManagerRouteCard = react.RegisterRecipe("LukeManagerRoute", function(param
 	if line == nil then
 		return builtin.BoxLayout{}
 	end
+	-- the same titled card ("Line Map" heading) as in the line and vehicle windows
 	return builtin.BoxLayout{
 		child = builtin.Component{
 			meta = { class = "luke-lt-manager-card" },
 			layout = builtin.BoxLayout{
-				-- a new localKey per line gives each line fresh state instead of briefly showing the old one
-				child = LineTrackerContent{ meta = { localKey = "line" .. tostring(line) }, lineId = line, width = MANAGER_W, gameCtx = params.gameCtx } as TreeNodeId,
+				child = content_card.ContentCard{
+					-- a new localKey per line gives each line fresh state instead of briefly showing the old one
+					meta = { localKey = "lukeManagerLine" .. tostring(line) },
+					title = _("Line Map"),
+					initialCalloutTextPermanent = "",
+					recipeAndParamPermanent = content_card.makeRecipeAndParam(LineTrackerContent, { lineId = line, width = MANAGER_W, gameCtx = params.gameCtx }),
+					gameCtx = params.gameCtx,
+					showOnRightSide = false,
+				},
 			},
 		},
 	}
