@@ -7,6 +7,11 @@ function data()
 
 	local colorDefault = api.gui.genericRep.get(api.gui.genericRep.find("::/gui/main/default_colors.gres")).data
 
+	-- exact placement rows on the line map: [lead spacer][item][filler], no extra spacing, and the
+	-- lead spacer keeps exactly the width the script gives it
+	a("BoxLayout!luke-lt-pos", { innerSpacing = { 0, 0 }, padding = { 0, 0, 0, 0 }, margin = { 0, 0, 0, 0 } })
+	a("Component!luke-lt-lead", { gravity = { 0, 0.5 }, padding = { 0, 0, 0, 0 }, margin = { 0, 0, 0, 0 } })
+
 	-- hover popup content (inside the game's DefaultCalloutWrapper bubble)
 	a("BoxLayout!luke-lt-info", { innerSpacing = { 0, 4 } })
 	a("BoxLayout!luke-lt-row", { innerSpacing = { 6, 0 } })

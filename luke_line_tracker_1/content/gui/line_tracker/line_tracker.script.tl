@@ -2,10 +2,11 @@
 -- direction of travel. Shown in two places:
 --   1. a "Line Map" card in the line entity window, below Balance (LineTrackerPlugin)
 --   2. a card right below the stop list in the line manager, for the selected line (doReplace)
---   3. a "Line Map" card in the vehicle window: that vehicle in full colour, the others faded
--- Everything is drawn from placed components inside a FloatingLayout. FloatingLayoutChild h/v
--- work like gravity: an item's left edge lands at h * (layout width - item width), so to centre
--- an item on a point its own size has to be taken into account (see place).
+--   3. a "Line Map" card in the vehicle window: that vehicle in its load colour, the others grey
+-- Everything is drawn inside a FloatingLayout. Each item sits in its own full-width row
+-- (FloatingLayoutChild h = -1) as [fixed-width spacer][item][filler], so its left edge is an exact
+-- pixel offset. (Placing items by h-gravity made pieces of different widths drift apart in-game,
+-- worse towards the right of long lines, because gravity depends on the item's own width.)
 
 local react = ug_require "::/gui/main/react.lua" as React
 local builtin = ug_require "::/gui/main/builtin.lua" as Builtin
@@ -51,10 +52,8 @@ local COLOR_VEHICLE_OUTLINE : {number} = { 0.05, 0.05, 0.05, 1.0 }
 local LOAD_EMPTY : {number} = { 0.30, 0.75, 0.42 }
 local LOAD_HALF : {number} = { 0.96, 0.80, 0.25 }
 local LOAD_FULL : {number} = { 0.90, 0.30, 0.25 }
--- other vehicles when one is highlighted (vehicle window): load colour washed towards grey, see-through
-local FADE_TO : {number} = { 0.55, 0.57, 0.60 }
-local FADE_MIX <const> = 0.6
-local FADE_ALPHA <const> = 0.45
+-- other vehicles when one is highlighted (vehicle window): a neutral grey instead of their load colour
+local COLOR_OTHER_VEHICLE : {number} = { 0.60, 0.61, 0.63, 1.0 }
 
 local record CargoCount
 	cargoType : integer
@@ -137,15 +136,6 @@ local function loadColor(frac : number) : {number}
 		a, b, t = LOAD_HALF, LOAD_FULL, (frac - 0.5) / 0.5
 	end
 	return { lerp(a[1], b[1], t), lerp(a[2], b[2], t), lerp(a[3], b[3], t), 1.0 }
-end
-
-local function faded(color : {number}) : {number}
-	return {
-		lerp(color[1], FADE_TO[1], FADE_MIX),
-		lerp(color[2], FADE_TO[2], FADE_MIX),
-		lerp(color[3], FADE_TO[3], FADE_MIX),
-		(color[4] or 1) * FADE_ALPHA,
-	}
 end
 
 local function entityPosition(entity : Engine.Entity) : boolean, number, number
@@ -459,37 +449,132 @@ end
 -- the d.tl types overflowMode as boolean, but vanilla (callout_container) passes this enum value
 local KEEP_INSIDE = builtin.type.FloatingLayoutOverflowMode.KeepInside as any as boolean
 
--- Place an item of size (w, h) with its centre at (cx, cy) canvas pixels. h/v are gravity: the
--- item's left edge lands at h * (canvas width - w), as measured in-game (the end stations sat
--- 6 px inwards while the full-width track did not when this assumed h * canvas width).
-local function place(canvas : Canvas, key : string, cx : number, cy : number, w : number, h : number, item : TreeNodeId) : TreeNodeId
-	local hx = canvas.w > w and (cx - w * 0.5) / (canvas.w - w) or 0
+-- Place an item of size (w, h) so that the point anchorX px from its left edge (default: its
+-- centre) lands on x = cx, vertically centred on cy. Exact: the item's left edge is offset by a
+-- fixed-width spacer in a full-width row; only the vertical position uses gravity, and every item
+-- on the strip is centred on the same line, so that is exact too.
+local function place(canvas : Canvas, key : string, cx : number, cy : number, w : number, h : number, item : TreeNodeId, anchorX? : number) : TreeNodeId
+	local left = math.max(0, math.floor(cx - (anchorX or w * 0.5) + 0.5))
 	local vy = canvas.h > h and (cy - h * 0.5) / (canvas.h - h) or 0
 	return builtin.FloatingLayoutChild{
 		localKey = key,
-		h = clamp(hx, 0, 1),
+		h = -1,
 		v = clamp(vy, 0, 1),
 		overflowMode = KEEP_INSIDE,
-		item = item,
+		item = builtin.BoxLayout{
+			meta = { class = "luke-lt-pos" },
+			orientation = builtin.type.Orientation.Horizontal,
+			children = {
+				builtin.Component{ mouseTransparent = true, meta = { class = "luke-lt-lead", styleSheet = styleutil.makeStyle{ size = { left, 1 } } } },
+				item,
+				builtin.Component{ mouseTransparent = true, meta = { class = "horizontal-spacer" } },
+			},
+		},
 	}
 end
 
+-- A full-size, see-through first child: a FloatingLayout only grows to fit its children.
+local function stretchBase(w : number, h : number, color? : {number}) : TreeNodeId
+	return builtin.FloatingLayoutChild{
+		localKey = "background",
+		h = -1,
+		v = -1,
+		item = shape(w, h, color or { 0, 0, 0, 0 }),
+	}
+end
+
+-- A triangle (combobox arrow mask, tinted) whose flat base is at baseX and whose tip points dir
+-- (+1 right, -1 left), reaching w beyond the base, h tall. The mask image is stretched so the
+-- triangle itself, not the padded 48x48 image, gets that size. Returns the image box's left edge
+-- and size, and the node.
+local function pointerBox(baseX : number, dir : number, w : number, h : number) : number, number, number
+	local boxW = w / MASK_W
+	local boxH = h / MASK_H
+	local baseFrac = dir > 0 and MASK_BASE or (1 - MASK_BASE)
+	return baseX - baseFrac * boxW, boxW, boxH
+end
+
+local function pointerNode(dir : number, boxW : number, boxH : number, color : {number}) : TreeNodeId
+	return builtin.Component{
+		mouseTransparent = true,
+		meta = { styleSheet = styleutil.makeStyle{ size = { boxW, boxH } } },
+		layout = builtin.BoxLayout{ child = builtin.ImageView{
+			path = dir > 0 and ARROW_RIGHT_IMAGE or ARROW_LEFT_IMAGE,
+			scaling = builtin.type.ImageViewScaling.Stretch,
+			meta = { styleSheet = styleutil.makeStyle{ size = { boxW, boxH }, color = color } },
+		} },
+	}
+end
+
+-- Geometry of a vehicle teardrop: one box holding the outline, the circle and the tip. Returns the
+-- box size and where the circle's centre sits in it (x from the left).
+local record Teardrop
+	w : number
+	h : number
+	centerX : number
+end
+
+local function teardropGeometry(dir : number) : Teardrop
+	local ro = VEHICLE_SIZE * 0.5 + VEHICLE_OUTLINE
+	if dir == 0 then
+		return { w = 2 * ro, h = 2 * ro, centerX = ro }
+	end
+	local r = VEHICLE_SIZE * 0.5
+	-- the tip's base sits where the circle is exactly POINTER_H tall, so the two blend into one shape
+	local baseInset = math.sqrt(math.max(r * r - (POINTER_H * 0.5) ^ 2, 0))
+	local oLeft, oW, oH = pointerBox(baseInset - VEHICLE_OUTLINE, 1, POINTER_W + 2 * VEHICLE_OUTLINE, POINTER_H + 2 * VEHICLE_OUTLINE + 1)
+	local fLeft, fW, fH = pointerBox(baseInset, 1, POINTER_W, POINTER_H)
+	local back = math.max(ro, -oLeft, -fLeft)        -- reach behind the centre
+	local front = math.max(ro, oLeft + oW, fLeft + fW) -- reach in front of it
+	local w = math.ceil(back + front)
+	local h = math.ceil(math.max(2 * ro, oH, fH))
+	return { w = w, h = h, centerX = dir > 0 and back or (w - back) }
+end
+
 local record MarkerParams
-	size : number
+	kind : string -- "station" (a circle) or "vehicle" (a teardrop pointing dir)
+	size : number -- station diameter
 	color : {number}
+	dir : number -- vehicles: +1 heading right, -1 left, 0 unknown
+	outlineColor : {number}
+	entity : Engine.Entity -- selected in the game when the marker is clicked
 	info : Info
 	gameCtx : GameContext
 end
 
--- A round station or vehicle marker. Hovering it opens the game's callout bubble with the info
--- (cargo icons + text), the same hover pattern as vanilla's content_card InfoCalloutWrapper;
--- without a callout container it falls back to a plain-text tooltip.
+-- the vehicle teardrop, built inside its own box: outline, tip and circle never move apart
+local function teardropParts(dir : number, color : {number}, outlineColor : {number}) : {TreeNodeId}, Teardrop
+	local geo = teardropGeometry(dir)
+	local box : Canvas = { w = geo.w, h = geo.h }
+	local cx = geo.centerX
+	local midY = geo.h * 0.5
+	local ro = VEHICLE_SIZE * 0.5 + VEHICLE_OUTLINE
+	local parts : {TreeNodeId} = { stretchBase(geo.w, geo.h) }
+	parts[#parts + 1] = place(box, "o", cx, midY, 2 * ro, 2 * ro, shape(2 * ro, 2 * ro, outlineColor, true))
+	if dir ~= 0 then
+		local r = VEHICLE_SIZE * 0.5
+		local baseInset = math.sqrt(math.max(r * r - (POINTER_H * 0.5) ^ 2, 0))
+		local oLeft, oW, oH = pointerBox(cx + dir * (baseInset - VEHICLE_OUTLINE), dir, POINTER_W + 2 * VEHICLE_OUTLINE, POINTER_H + 2 * VEHICLE_OUTLINE + 1)
+		parts[#parts + 1] = place(box, "po", oLeft, midY, oW, oH, pointerNode(dir, oW, oH, outlineColor), 0)
+		local fLeft, fW, fH = pointerBox(cx + dir * baseInset, dir, POINTER_W, POINTER_H)
+		parts[#parts + 1] = place(box, "p", fLeft, midY, fW, fH, pointerNode(dir, fW, fH, color), 0)
+	end
+	parts[#parts + 1] = place(box, "c", cx, midY, VEHICLE_SIZE, VEHICLE_SIZE, shape(VEHICLE_SIZE, VEHICLE_SIZE, color, true))
+	return parts, geo
+end
+
+-- A station or vehicle marker: one element. Hovering it opens the game's callout bubble with the
+-- info (cargo icons + text), the same hover pattern as vanilla's content_card InfoCalloutWrapper;
+-- without a callout container it falls back to a plain-text tooltip. Clicking it selects the
+-- vehicle or station in the game (opens its window), like the line manager's own buttons do.
 local Marker = react.RegisterRecipe("LukeLineMarker", function(params : MarkerParams) : TreeNodeId
 	local nodeRef = react.useNodeRef()
 	local wantRef = react.useRef(false)
 	local shownKeyRef = react.useRef("") -- "" = no popup shown
 	local infoRef = react.useRef(params.info)
 	infoRef:set(params.info)
+	local entityRef = react.useRef(params.entity)
+	entityRef:set(params.entity)
 	local hasCallouts = params.gameCtx ~= nil and params.gameCtx.calloutContainerRef ~= nil
 
 	local function calloutApi() : CalloutApi
@@ -524,13 +609,37 @@ local Marker = react.RegisterRecipe("LukeLineMarker", function(params : MarkerPa
 	react.onUnmount(function()
 		closePopup()
 	end)
+	react.onMouseEvent(function(evt : Gui.Mouse.Event) : boolean
+		if evt.type == api.gui.mouse.Event.Type.Clicked and evt.button == 0 then
+			local entity = entityRef:get() as Engine.Entity
+			if entity ~= nil and entity >= 0 then
+				closePopup()
+				react.fireEvent(nil, "selectEntity", { entity = entity, stack = true })
+				return true
+			end
+		end
+		return false
+	end)
+
+	local w, h = params.size, params.size
+	local layout : TreeNodeId = nil
+	local style : StyleSheet
+	if params.kind == "vehicle" then
+		local parts, geo = teardropParts(params.dir, params.color, params.outlineColor)
+		w, h = geo.w, geo.h
+		style = styleutil.makeStyle{ size = { w, h } }
+		layout = builtin.FloatingLayout{ children = parts }
+	else
+		style = shapeStyle(w, h, params.color, true)
+	end
 
 	-- a recipe must return a layout ("Recipe child must be a layout" crashes the game UI), so the
 	-- component is wrapped in a BoxLayout like every vanilla recipe does
 	return builtin.BoxLayout{ child = builtin.Component(react.ref(nodeRef), {
+		layout = layout,
 		meta = {
 			tooltip = not hasCallouts and infoText(params.info) or nil,
-			styleSheet = shapeStyle(params.size, params.size, params.color, true),
+			styleSheet = style,
 			onAttention = function(attention : boolean)
 				wantRef:set(attention)
 				if not attention then closePopup() end
@@ -538,25 +647,6 @@ local Marker = react.RegisterRecipe("LukeLineMarker", function(params : MarkerPa
 		},
 	}) }
 end)
-
--- A triangle (combobox arrow mask, tinted) whose flat base is centred at (baseX, cy) and whose tip
--- points dir (+1 right, -1 left), reaching w beyond the base, h tall. The mask image is stretched
--- so the triangle itself, not the padded 48x48 image, gets that size.
-local function pointer(canvas : Canvas, key : string, baseX : number, cy : number, dir : number, w : number, h : number, color : {number}) : TreeNodeId
-	local boxW = w / MASK_W
-	local boxH = h / MASK_H
-	local baseFrac = dir > 0 and MASK_BASE or (1 - MASK_BASE)
-	local centerX = baseX - baseFrac * boxW + boxW * 0.5
-	return place(canvas, key, centerX, cy, boxW, boxH, builtin.Component{
-		mouseTransparent = true,
-		meta = { styleSheet = styleutil.makeStyle{ size = { boxW, boxH } } },
-		layout = builtin.BoxLayout{ child = builtin.ImageView{
-			path = dir > 0 and ARROW_RIGHT_IMAGE or ARROW_LEFT_IMAGE,
-			scaling = builtin.type.ImageViewScaling.Stretch,
-			meta = { styleSheet = styleutil.makeStyle{ size = { boxW, boxH }, color = color } },
-		} },
-	})
-end
 
 ---------------------------------------------------------------------------
 -- the route strip
@@ -585,6 +675,7 @@ end
 -- One straight line with the stations in order of first visit, spaced by real distance (with a
 -- minimum gap). Stations are circles in the line colour with a white centre. Vehicles ride on the
 -- line as load-coloured teardrops: a circle with a pointed tip towards where they are heading.
+-- With canvas.highlight set (vehicle window) only that vehicle shows its load colour, the others are grey.
 local function buildRoute(canvas : Canvas, line : LineInfo, vehicles : {VehicleInfo}) : {TreeNodeId}
 	local stops = line.stops
 	local unique, indexOf, waitingOf = uniqueStations(stops)
@@ -621,19 +712,17 @@ local function buildRoute(canvas : Canvas, line : LineInfo, vehicles : {VehicleI
 
 	for i, s in ipairs(unique) do
 		children[#children + 1] = place(canvas, "st" .. i, xs[i], midY, stationSize, stationSize, Marker{
+			kind = "station",
 			size = stationSize,
 			color = line.color,
+			entity = s.group,
 			info = stationInfo(s.name, waitingOf[i]),
 			gameCtx = canvas.gameCtx,
 		})
 		children[#children + 1] = place(canvas, "stDot" .. i, xs[i], midY, dotSize, dotSize, shape(dotSize, dotSize, COLOR_STATION_DOT, true))
 	end
 
-	local outline = VEHICLE_SIZE + 2 * VEHICLE_OUTLINE
-	local r = VEHICLE_SIZE * 0.5
-	-- the tip's base sits where the circle is exactly POINTER_H tall, so the two blend into one shape
-	local baseInset = math.sqrt(math.max(r * r - (POINTER_H * 0.5) ^ 2, 0))
-	-- with a highlighted vehicle, draw it last so it sits on top of the faded others
+	-- with a highlighted vehicle, draw it last so it sits on top of the others
 	local ordered : {VehicleInfo} = {}
 	for __, v in ipairs(vehicles) do
 		if v.id ~= canvas.highlight then ordered[#ordered + 1] = v end
@@ -649,29 +738,20 @@ local function buildRoute(canvas : Canvas, line : LineInfo, vehicles : {VehicleI
 		if v.atStop then
 			fromX, toX = xs[indexOf[v.next]], xs[indexOf[(v.next % n) + 1]]
 		end
-		local key = tostring(v.id)
-		local dim = canvas.highlight ~= nil and v.id ~= canvas.highlight
-		local color = loadColor(v.fill)
-		local outlineColor = COLOR_VEHICLE_OUTLINE
-		if dim then
-			color = faded(color)
-			outlineColor = { COLOR_VEHICLE_OUTLINE[1], COLOR_VEHICLE_OUTLINE[2], COLOR_VEHICLE_OUTLINE[3], FADE_ALPHA }
-		end
 		local dir = 0
 		if math.abs(toX - fromX) >= 0.5 then dir = toX > fromX and 1 or -1 end
-		-- dark outline first (circle + tip, 1 px larger), then the load-coloured teardrop on top
-		children[#children + 1] = place(canvas, "vehO" .. key, x, midY, outline, outline, shape(outline, outline, outlineColor, true))
-		if dir ~= 0 then
-			children[#children + 1] = pointer(canvas, "vehPO" .. key, x + dir * (baseInset - VEHICLE_OUTLINE), midY, dir,
-				POINTER_W + 2 * VEHICLE_OUTLINE, POINTER_H + 2 * VEHICLE_OUTLINE + 1, outlineColor)
-			children[#children + 1] = pointer(canvas, "vehP" .. key, x + dir * baseInset, midY, dir, POINTER_W, POINTER_H, color)
-		end
-		children[#children + 1] = place(canvas, "veh" .. key, x, midY, VEHICLE_SIZE, VEHICLE_SIZE, Marker{
-			size = VEHICLE_SIZE,
+		local color = loadColor(v.fill)
+		if canvas.highlight ~= nil and v.id ~= canvas.highlight then color = COLOR_OTHER_VEHICLE end
+		local geo = teardropGeometry(dir)
+		children[#children + 1] = place(canvas, "veh" .. tostring(v.id), x, midY, geo.w, geo.h, Marker{
+			kind = "vehicle",
 			color = color,
+			dir = dir,
+			outlineColor = COLOR_VEHICLE_OUTLINE,
+			entity = v.id,
 			info = vehicleInfo(v),
 			gameCtx = canvas.gameCtx,
-		})
+		}, geo.centerX)
 	end
 	return children
 end
@@ -746,12 +826,7 @@ local LineTrackerContent = react.RegisterRecipe("LukeLineTrackerContent", functi
 		-- A FloatingLayout only grows to fit its children, so without this full-size first child
 		-- it collapses to the size of one marker. Vanilla uses the same h = -1, v = -1 (stretch)
 		-- base child, e.g. in construction.tl.
-		table.insert(children, 1, builtin.FloatingLayoutChild{
-			localKey = "background",
-			h = -1,
-			v = -1,
-			item = shape(canvas.w, canvas.h, COLOR_BACKGROUND),
-		})
+		table.insert(children, 1, stretchBase(canvas.w, canvas.h, COLOR_BACKGROUND))
 
 		-- Clipper (vanilla gui_react_util) keeps the drawing inside the canvas, e.g. when the line
 		-- window is scrolled and the canvas is partly out of view

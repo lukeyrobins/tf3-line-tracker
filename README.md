@@ -6,9 +6,11 @@ It appears in three places:
 
 - **Line window:** a "Line Map" section below Balance.
 - **Line manager:** a route card right below the stop list of the selected line. It changes as you click through your lines.
-- **Vehicle window:** a "Line Map" section showing that vehicle's line. The selected vehicle is in full colour and the others are faded.
+- **Vehicle window:** a "Line Map" section showing that vehicle's line. The selected vehicle shows its load colour and the others are grey.
 
 Hover a station to see what is waiting there for that line, with cargo icons. Hover a vehicle to see its load (for example "19/95 (20%)" with the passenger icon).
+
+Click a vehicle or station on the map to select it in the game and open its window.
 
 Vehicle colours go from green (empty) through yellow to red (full).
 
